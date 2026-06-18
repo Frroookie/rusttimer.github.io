@@ -20,6 +20,7 @@ const state = {
   timers: []
 };
 
+// DOM
 const cardsGrid = document.getElementById('cardsGrid');
 const selectedName = document.getElementById('selectedName');
 const countdown = document.getElementById('countdown');
@@ -32,19 +33,21 @@ const resetBtn = document.getElementById('resetBtn');
 const toast = document.getElementById('toast');
 
 function showToast(message) {
+  if (!toast) return;
   toast.textContent = message;
   toast.style.display = 'block';
-  clearTimeout(showToast.timeoutId);
-  showToast.timeoutId = setTimeout(() => {
+
+  clearTimeout(showToast.timeout);
+  showToast.timeout = setTimeout(() => {
     toast.style.display = 'none';
   }, 3000);
 }
 
 function formatTime(seconds) {
-  const safe = Math.max(0, Math.floor(seconds));
-  const mins = String(Math.floor(safe / 60)).padStart(2, '0');
-  const secs = String(safe % 60).padStart(2, '0');
-  return `${mins}:${secs}`;
+  const s = Math.max(0, Math.floor(seconds));
+  const m = String(Math.floor(s / 60)).padStart(2, '0');
+  const sec = String(s % 60).padStart(2, '0');
+  return `${m}:${sec}`;
 }
 
 function getBand(pop) {
@@ -54,7 +57,9 @@ function getBand(pop) {
   return 'Very High';
 }
 
-function getRangeForMonument(monument, pop) {
+function getRange(monument, pop) {
+  if (monument.isChinook) return { min: 90, max: 120 };
+
   const band = getBand(pop);
   if (band === 'Low') return { min: 25, max: 40 };
   if (band === 'Medium') return { min: 15, max: 30 };
@@ -62,192 +67,158 @@ function getRangeForMonument(monument, pop) {
   return { min: 8, max: 20 };
 }
 
-function midpoint(min, max) {
+function mid(min, max) {
   return (min + max) / 2;
 }
 
-function getEstimatedCycle(monument, pop) {
-  if (monument.isChinook) {
-    return 15 * 60;
-  }
-  const range = getRangeForMonument(monument, pop);
-  return midpoint(range.min, range.max) * 60;
+function getCycle(monument, pop) {
+  const r = getRange(monument, pop);
+  return mid(r.min, r.max) * 60;
 }
 
-function getEstimatedText(monument, pop) {
-  if (monument.isChinook) {
-    return '~15 min';
-  }
-  const range = getRangeForMonument(monument, pop);
-  return `${range.min}-${range.max} min range`;
-}
-
-function createTimerState(monument) {
+function createTimer(monument) {
   return {
     name: monument.name,
     icon: monument.icon,
-    isChinook: !!monument.isChinook,
-    remainingSeconds: getEstimatedCycle(monument, state.population),
+    isChinook: monument.isChinook || false,
+    remaining: getCycle(monument, state.population),
     running: false,
     lastTick: 0
   };
 }
 
-function saveState() {
-  localStorage.setItem(
-    STORAGE_KEY,
-    JSON.stringify({
-      population: state.population,
-      selectedIndex: state.selectedIndex,
-      timers: state.timers
-    })
-  );
+function save() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
-function loadState() {
-  const saved = localStorage.getItem(STORAGE_KEY);
-  if (!saved) return;
+function load() {
+  const data = localStorage.getItem(STORAGE_KEY);
+  state.timers = monuments.map(createTimer);
+
+  if (!data) return;
 
   try {
-    const parsed = JSON.parse(saved);
-    if (!parsed || typeof parsed !== 'object') return;
+    const parsed = JSON.parse(data);
 
-    state.population = Math.max(0, Math.min(1000, Number(parsed.population) || 100));
-    state.selectedIndex = Math.max(0, Math.min(monuments.length - 1, Number(parsed.selectedIndex) || 0));
+    state.population = parsed.population ?? 100;
+    state.selectedIndex = parsed.selectedIndex ?? 0;
 
-    if (Array.isArray(parsed.timers) && parsed.timers.length === monuments.length) {
-      state.timers = parsed.timers.map((timer, index) => ({
-        ...createTimerState(monuments[index]),
-        ...timer,
-        remainingSeconds: Math.max(0, Number(timer.remainingSeconds) || getEstimatedCycle(monuments[index], state.population)),
-        running: Boolean(timer.running),
-        lastTick: Number(timer.lastTick) || 0
+    if (Array.isArray(parsed.timers)) {
+      state.timers = parsed.timers.map((t, i) => ({
+        ...createTimer(monuments[i]),
+        ...t
       }));
-
-      state.timers.forEach(timer => {
-        if (timer.running && timer.lastTick) {
-          const elapsed = Math.max(0, (Date.now() - timer.lastTick) / 1000);
-          timer.remainingSeconds = Math.max(0, timer.remainingSeconds - elapsed);
-          if (timer.remainingSeconds <= 0) {
-            timer.remainingSeconds = 0;
-            timer.running = false;
-          }
-          timer.lastTick = Date.now();
-        }
-      });
-    } else {
-      state.timers = monuments.map(monument => createTimerState(monument));
     }
   } catch (e) {
-    console.warn('Unable to load timer state.', e);
-    state.timers = monuments.map(monument => createTimerState(monument));
+    console.warn('Load error', e);
   }
 }
 
-function updatePopulationUI() {
+function updateUI() {
+  const t = state.timers[state.selectedIndex];
+
+  selectedName.textContent = t.name;
+  countdown.textContent = formatTime(t.remaining);
+
+  timerLabel.textContent =
+    t.running ? 'Reset In' :
+    t.remaining === 0 ? 'Complete' : 'Ready';
+
   populationValue.textContent = state.population;
   populationInput.value = state.population;
-  metaText.textContent = `${getBand(state.population)} population • ${getEstimatedText(monuments[state.selectedIndex], state.population)}`;
+
+  metaText.textContent = `${getBand(state.population)} population`;
+
+  startBtn.textContent = t.running ? 'Running' : 'Start Timer';
+
+  renderCards();
 }
 
 function renderCards() {
   cardsGrid.innerHTML = '';
-  state.timers.forEach((timer, index) => {
+
+  state.timers.forEach((t, i) => {
     const card = document.createElement('button');
-    card.className = 'card' + (index === state.selectedIndex ? ' selected' : '');
+    card.className = 'card' + (i === state.selectedIndex ? ' selected' : '');
+
     card.innerHTML = `
-      <div class="card-icon">${timer.icon}</div>
-      <h4>${timer.name}</h4>
-      <small>${timer.running ? formatTime(timer.remainingSeconds) : '~' + formatTime(timer.remainingSeconds)}</small>
+      <div class="card-icon">${t.icon}</div>
+      <h4>${t.name}</h4>
+      <small>${formatTime(t.remaining)}</small>
     `;
-    card.addEventListener('click', () => selectMonument(index));
+
+    card.onclick = () => {
+      state.selectedIndex = i;
+      updateUI();
+    };
+
     cardsGrid.appendChild(card);
   });
 }
 
-function selectMonument(index) {
-  state.selectedIndex = index;
-  updateUI();
-}
-
-function updateUI() {
-  const timer = state.timers[state.selectedIndex];
-  selectedName.textContent = timer.name;
-  countdown.textContent = formatTime(timer.remainingSeconds);
-
-  if (timer.running) {
-    timerLabel.textContent = 'Reset In';
-  } else if (timer.remainingSeconds === 0) {
-    timerLabel.textContent = 'Complete';
-  } else {
-    timerLabel.textContent = 'Ready';
-  }
-
-  updatePopulationUI();
-  renderCards();
-  startBtn.textContent = timer.running ? 'Running' : 'Start Timer';
-}
-
 function tick() {
-  let ended = false;
-  state.timers.forEach(timer => {
-    if (!timer.running) return;
+  const now = Date.now();
+  let changed = false;
 
-    const now = Date.now();
-    const elapsed = (now - timer.lastTick) / 1000;
-    if (elapsed > 0) {
-      timer.remainingSeconds = Math.max(0, timer.remainingSeconds - elapsed);
-      timer.lastTick = now;
+  state.timers.forEach(t => {
+    if (!t.running) return;
 
-      if (timer.remainingSeconds === 0) {
-        timer.running = false;
-        ended = true;
-        showToast(`${timer.name} timer finished!`);
-      }
+    const elapsed = (now - t.lastTick) / 1000;
+    t.lastTick = now;
+
+    t.remaining = Math.max(0, t.remaining - elapsed);
+
+    if (t.remaining === 0) {
+      t.running = false;
+      showToast(`${t.name} ready`);
     }
+
+    changed = true;
   });
 
-  if (ended || state.timers.some(timer => timer.running)) {
+  if (changed) {
+    save();
     updateUI();
   }
-  saveState();
 }
 
-function startTimer() {
-  const timer = state.timers[state.selectedIndex];
-  if (timer.running) return;
-  timer.running = true;
-  timer.lastTick = Date.now();
+// EVENTS
+startBtn.onclick = () => {
+  const t = state.timers[state.selectedIndex];
+  if (t.running) return;
+
+  t.running = true;
+  t.lastTick = Date.now();
+
   updateUI();
-  saveState();
-}
+  save();
+};
 
-function resetTimer() {
-  const timer = state.timers[state.selectedIndex];
-  timer.remainingSeconds = getEstimatedCycle(timer, state.population);
-  timer.running = false;
-  timer.lastTick = 0;
+resetBtn.onclick = () => {
+  const t = state.timers[state.selectedIndex];
+
+  t.running = false;
+  t.remaining = getCycle(t, state.population);
+  t.lastTick = 0;
+
   updateUI();
-  saveState();
-}
+  save();
+};
 
-populationInput.addEventListener('input', (e) => {
+populationInput.addEventListener('input', e => {
   state.population = Math.max(0, Math.min(1000, Number(e.target.value) || 0));
 
-  state.timers.forEach(timer => {
-    if (!timer.running) {
-      timer.remainingSeconds = getEstimatedCycle(timer, state.population);
-      timer.lastTick = 0;
+  state.timers.forEach(t => {
+    if (!t.running) {
+      t.remaining = getCycle(t, state.population);
     }
   });
 
   updateUI();
-  saveState();
+  save();
 });
 
-startBtn.addEventListener('click', startTimer);
-resetBtn.addEventListener('click', resetTimer);
-
-loadState();
+// INIT
+load();
 updateUI();
-setInterval(tick, 250);
+setInterval(tick, 1000);
