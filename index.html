@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Rust Monument Timer</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="top-bar">
+      <div>
+        <p class="eyebrow">Rust Survival</p>
+        <h1>Monument Timer</h1>
+      </div>
+      <div class="population-control">
+        <label for="population">Population <span id="populationValue">100</span></label>
+        <input id="population" type="range" min="0" max="1000" value="100" />
+      </div>
+    </header>
+
+    <main class="content">
+      <section class="timer-panel">
+        <div class="timer-header">
+          <p class="eyebrow">Selected Monument</p>
+          <h2 id="selectedName">Airfield</h2>
+        </div>
+        <div class="timer-circle">
+          <div>
+            <p id="timerLabel">Ready</p>
+            <h3 id="countdown">00:00</h3>
+          </div>
+        </div>
+        <div class="timer-actions">
+          <button id="startBtn">Start Timer</button>
+          <button id="resetBtn" class="secondary">Reset</button>
+        </div>
+        <p id="metaText" class="meta-text">Estimated cycle: 32 min</p>
+      </section>
+
+      <section class="cards-panel">
+        <div class="cards-grid" id="cardsGrid"></div>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast"></div>
+  <script src="script.js"></script>
+</body>
+</html>
